@@ -20,7 +20,9 @@
     android:versionName="1.0">
 
     <!-- Min/target SDK versions (<uses-sdk>) managed by build.gradle -->
-
+    <uses-feature android:name="android.hardware.camera2.full"
+        android:required='true' />
+    <uses-feature android:name="android.hardware.camera.autofocus" />
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>

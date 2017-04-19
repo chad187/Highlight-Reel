@@ -55,6 +55,7 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.Toast;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -217,6 +218,7 @@ public class Camera2VideoFragment extends Fragment
     };
     private Integer mSensorOrientation;
     private String mNextVideoAbsolutePath;
+    private String mPreviousVideoAbsolutePath;
     private CaptureRequest.Builder mPreviewBuilder;
     private Surface mRecorderSurface;
 
@@ -310,7 +312,7 @@ public class Camera2VideoFragment extends Fragment
         switch (view.getId()) {
             case R.id.video: {
                 if (mIsRecordingVideo) {
-                    stopRecordingVideo();
+                    saveVideo();
                 } else {
                     startRecordingVideo();
                 }
@@ -582,11 +584,28 @@ public class Camera2VideoFragment extends Fragment
             mNextVideoAbsolutePath = getVideoFilePath(getActivity());
         }
         mMediaRecorder.setOutputFile(mNextVideoAbsolutePath);
+//        mMediaRecorder.setCaptureRate(120);
         mMediaRecorder.setVideoEncodingBitRate(10000000);
+//        mMediaRecorder.setVideoFrameRate(QUALITY_HIGH_SPEED_HIGH);
         mMediaRecorder.setVideoFrameRate(30);
+        mMediaRecorder.setMaxDuration(2000);
         mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
         mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        mMediaRecorder.setOnInfoListener(new MediaRecorder.OnInfoListener() {
+            @Override
+            public void onInfo(MediaRecorder mr, int what, int extra) {
+                switch (what) {
+                    case MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED:
+                        Log.e("MAX_DURATION_REACHED", what + "");
+                        cacheVideo();
+                        mMediaRecorder.setOutputFile(getVideoFilePath(getActivity()));
+                        startRecordingVideo();
+
+                        break;
+                }
+            }
+        });  //testing the video restart feature
         int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
         switch (mSensorOrientation) {
             case SENSOR_ORIENTATION_DEFAULT_DEGREES:
@@ -639,7 +658,7 @@ public class Camera2VideoFragment extends Fragment
                         @Override
                         public void run() {
                             // UI
-                            mButtonVideo.setText(R.string.stop);
+                            mButtonVideo.setText(R.string.save);
                             mIsRecordingVideo = true;
 
                             // Start recording
@@ -678,13 +697,53 @@ public class Camera2VideoFragment extends Fragment
         // Stop recording
         mMediaRecorder.stop();
         mMediaRecorder.reset();
+        File file = new File(mNextVideoAbsolutePath);
+        file.delete();
+//        Activity activity = getActivity();
+//        if (null != activity) {
+//            Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
+//                    Toast.LENGTH_SHORT).show();
+//            Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
+//        }
+        mNextVideoAbsolutePath = null;
+        startPreview();
+    }
 
+    private void saveVideo() {
+        //this needs more logic in order to save the previous video if necessary
+        //I have determined that the video will be cleaner if you save double the desired video
+        //that way you will have less joins, skipped frames and less processing power
+        mMediaRecorder.stop();
+        mMediaRecorder.reset();
         Activity activity = getActivity();
         if (null != activity) {
             Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
                     Toast.LENGTH_SHORT).show();
             Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
         }
+
+        mNextVideoAbsolutePath = null;
+        mPreviousVideoAbsolutePath = null;
+        startPreview();
+//        mMediaRecorder.setOutputFile(getVideoFilePath(getActivity()));
+        startRecordingVideo();
+    }
+
+    private void cacheVideo() {
+        mMediaRecorder.stop();
+        mMediaRecorder.reset();
+        Activity activity = getActivity();
+        if (null != activity) {
+            Toast.makeText(activity, "Video cached: " + mNextVideoAbsolutePath,
+                    Toast.LENGTH_SHORT).show();
+            Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
+        }
+
+        if (mPreviousVideoAbsolutePath != null) {
+            File file = new File(mPreviousVideoAbsolutePath);
+            file.delete();
+        }
+        mPreviousVideoAbsolutePath = mNextVideoAbsolutePath;
         mNextVideoAbsolutePath = null;
         startPreview();
     }
