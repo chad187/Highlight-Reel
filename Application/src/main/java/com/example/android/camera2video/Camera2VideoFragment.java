@@ -312,7 +312,7 @@ public class Camera2VideoFragment extends Fragment
         switch (view.getId()) {
             case R.id.video: {
                 if (mIsRecordingVideo) {
-                    saveVideo();
+                    toggleSaveButton();
                 } else {
                     startRecordingVideo();
                 }
@@ -588,7 +588,7 @@ public class Camera2VideoFragment extends Fragment
         mMediaRecorder.setVideoEncodingBitRate(10000000);
 //        mMediaRecorder.setVideoFrameRate(QUALITY_HIGH_SPEED_HIGH);
         mMediaRecorder.setVideoFrameRate(30);
-        mMediaRecorder.setMaxDuration(2000);
+        mMediaRecorder.setMaxDuration(4000);
         mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
         mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
@@ -709,11 +709,30 @@ public class Camera2VideoFragment extends Fragment
         startPreview();
     }
 
+    private void toggleSaveButton(){
+        mButtonVideo.setEnabled(false);
+        Handler handler = new Handler(); //Kirill you will say that this is so improper!
+        handler.postDelayed(new Runnable() {
+
+            @Override
+            public void run() {
+                mButtonVideo.setEnabled(true);
+            }
+        }, 1000);
+        saveVideo();
+    }
+
     private void saveVideo() {
         //this needs more logic in order to save the previous video if necessary
         //I have determined that the video will be cleaner if you save double the desired video
         //that way you will have less joins, skipped frames and less processing power
-        mMediaRecorder.stop();
+
+        try{
+            mMediaRecorder.stop();
+        }catch(RuntimeException stopException) {
+            File file = new File(mNextVideoAbsolutePath);
+            file.delete();
+        }
         mMediaRecorder.reset();
         Activity activity = getActivity();
         if (null != activity) {
@@ -725,7 +744,7 @@ public class Camera2VideoFragment extends Fragment
         mNextVideoAbsolutePath = null;
         mPreviousVideoAbsolutePath = null;
         startPreview();
-//        mMediaRecorder.setOutputFile(getVideoFilePath(getActivity()));
+        mMediaRecorder.setOutputFile(getVideoFilePath(getActivity()));
         startRecordingVideo();
     }
 
