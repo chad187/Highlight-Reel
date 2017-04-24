@@ -37,6 +37,7 @@ import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.MediaPlayer;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -55,12 +56,26 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.Toast;
 
+import com.coremedia.iso.boxes.Container;
+import com.googlecode.mp4parser.authoring.Movie;
+import com.googlecode.mp4parser.authoring.Track;
+import com.googlecode.mp4parser.authoring.builder.DefaultMp4Builder;
+import com.googlecode.mp4parser.authoring.container.mp4.MovieCreator;
+import com.googlecode.mp4parser.authoring.tracks.AppendTrack;
+import com.googlecode.mp4parser.authoring.tracks.CroppedTrack;
+
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -95,6 +110,11 @@ public class Camera2VideoFragment extends Fragment
         INVERSE_ORIENTATIONS.append(Surface.ROTATION_180, 90);
         INVERSE_ORIENTATIONS.append(Surface.ROTATION_270, 0);
     }
+
+    /**
+     * The length of the video to save in the past.
+     */
+    private int mHistoryLength = 5000;
 
     /**
      * An {@link AutoFitTextureView} for camera preview.
@@ -588,7 +608,7 @@ public class Camera2VideoFragment extends Fragment
         mMediaRecorder.setVideoEncodingBitRate(10000000);
 //        mMediaRecorder.setVideoFrameRate(QUALITY_HIGH_SPEED_HIGH);
         mMediaRecorder.setVideoFrameRate(30);
-        mMediaRecorder.setMaxDuration(4000);
+        mMediaRecorder.setMaxDuration(mHistoryLength * 2);
         mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
         mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
@@ -718,14 +738,11 @@ public class Camera2VideoFragment extends Fragment
             public void run() {
                 mButtonVideo.setEnabled(true);
             }
-        }, 1000);
+        }, 2000);
         saveVideo();
     }
 
     private void saveVideo() {
-        //this needs more logic in order to save the previous video if necessary
-        //I have determined that the video will be cleaner if you save double the desired video
-        //that way you will have less joins, skipped frames and less processing power
 
         try{
             mMediaRecorder.stop();
@@ -741,11 +758,201 @@ public class Camera2VideoFragment extends Fragment
             Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
         }
 
-        mNextVideoAbsolutePath = null;
-        mPreviousVideoAbsolutePath = null;
+        long mVideoLength = findVideoLength();
+
+        if (mPreviousVideoAbsolutePath != null && mVideoLength < mHistoryLength) {
+            //clip previous and join with next
+            Log.d("cases", "case 1");
+            clipVideoLength(mHistoryLength * 2 - mVideoLength, mHistoryLength * 2, mPreviousVideoAbsolutePath);
+            joinVideos();
+            File filePrevious = new File(mPreviousVideoAbsolutePath);
+            filePrevious.delete();
+            File fileNext = new File(mNextVideoAbsolutePath);
+            fileNext.delete();
+            mNextVideoAbsolutePath = null;
+            mPreviousVideoAbsolutePath = null;
+        }
+        else if (mVideoLength > mHistoryLength){
+            //drop previous, cut and save next
+            Log.d("cases", "case 2");
+            clipVideoLength(mVideoLength - mHistoryLength, mVideoLength, mNextVideoAbsolutePath);
+//            File filePrevious = new File(mPreviousVideoAbsolutePath);
+//            filePrevious.delete();
+//            File fileNext = new File(mNextVideoAbsolutePath);
+//            fileNext.delete();
+            mNextVideoAbsolutePath = null;
+            mPreviousVideoAbsolutePath = null;
+        }
+        else if((mPreviousVideoAbsolutePath == null && mVideoLength < mHistoryLength) || mVideoLength == mHistoryLength) {//will probably need to make some delta comparison due to double
+            //save next
+            Log.d("cases", "case 3");
+            mNextVideoAbsolutePath = null;
+            mPreviousVideoAbsolutePath = null;
+        }
+
         startPreview();
-        mMediaRecorder.setOutputFile(getVideoFilePath(getActivity()));
+//        mMediaRecorder.setOutputFile(getVideoFilePath(getActivity()));
         startRecordingVideo();
+    }
+
+    private void clipVideoLength(double videoStart, double videoEnd, String videoPath) {
+        //shorten the video at the given location
+        Movie movie = null;
+        try {
+            movie = MovieCreator.build(videoPath);
+
+            List<Track> tracks = movie.getTracks();
+            movie.setTracks(new LinkedList<Track>());
+            // remove all tracks we will create new tracks from the old
+
+            double startTime1 = 10;
+            double endTime1 = 20;
+            double startTime2 = 30;
+            double endTime2 = 40;
+
+            boolean timeCorrected = false;
+
+            // Here we try to find a track that has sync samples. Since we can only start decoding
+            // at such a sample we SHOULD make sure that the start of the new fragment is exactly
+            // such a frame
+            for (Track track : tracks) {
+                if (track.getSyncSamples() != null && track.getSyncSamples().length > 0) {
+                    if (timeCorrected) {
+                        // This exception here could be a false positive in case we have multiple tracks
+                        // with sync samples at exactly the same positions. E.g. a single movie containing
+                        // multiple qualities of the same video (Microsoft Smooth Streaming file)
+
+                        throw new RuntimeException("The startTime has already been corrected by another track with SyncSample. Not Supported.");
+                    }
+                    startTime1 = correctTimeToSyncSample(track, startTime1, false);
+                    endTime1 = correctTimeToSyncSample(track, endTime1, true);
+                    startTime2 = correctTimeToSyncSample(track, startTime2, false);
+                    endTime2 = correctTimeToSyncSample(track, endTime2, true);
+                    timeCorrected = true;
+                }
+            }
+
+            for (Track track : tracks) {
+                long currentSample = 0;
+                double currentTime = 0;
+                double lastTime = -1;
+                long startSample1 = -1;
+                long endSample1 = -1;
+                long startSample2 = -1;
+                long endSample2 = -1;
+
+                for (int i = 0; i < track.getSampleDurations().length; i++) {
+                    long delta = track.getSampleDurations()[i];
+
+
+                    if (currentTime > lastTime && currentTime <= startTime1) {
+                        // current sample is still before the new starttime
+                        startSample1 = currentSample;
+                    }
+                    if (currentTime > lastTime && currentTime <= endTime1) {
+                        // current sample is after the new start time and still before the new endtime
+                        endSample1 = currentSample;
+                    }
+                    if (currentTime > lastTime && currentTime <= startTime2) {
+                        // current sample is still before the new starttime
+                        startSample2 = currentSample;
+                    }
+                    if (currentTime > lastTime && currentTime <= endTime2) {
+                        // current sample is after the new start time and still before the new endtime
+                        endSample2 = currentSample;
+                    }
+                    lastTime = currentTime;
+                    currentTime += (double) delta / (double) track.getTrackMetaData().getTimescale();
+                    currentSample++;
+                }
+                movie.addTrack(new AppendTrack(new CroppedTrack(track, startSample1, endSample1), new CroppedTrack(track, startSample2, endSample2)));
+            }
+            long start1 = System.currentTimeMillis();
+            Container out = new DefaultMp4Builder().build(movie);
+            long start2 = System.currentTimeMillis();
+            FileOutputStream fos = new FileOutputStream(String.format("output-%f-%f--%f-%f.mp4", startTime1, endTime1, startTime2, endTime2));
+            FileChannel fc = fos.getChannel();
+            out.writeContainer(fc);
+
+            fc.close();
+            fos.close();
+            long start3 = System.currentTimeMillis();
+            System.err.println("Building IsoFile took : " + (start2 - start1) + "ms");
+            System.err.println("Writing IsoFile took  : " + (start3 - start2) + "ms");
+            System.err.println("Writing IsoFile speed : " + (new File(String.format("output-%f-%f--%f-%f.mp4", startTime1, endTime1, startTime2, endTime2)).length() / (start3 - start2) / 1000) + "MB/s");
+
+        }catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void joinVideos(){
+       //join previous and next videos
+        try {
+            String[] videoUris = new String[]{//these files can't be right
+
+                    mPreviousVideoAbsolutePath,
+                    mNextVideoAbsolutePath
+
+            };
+
+            List<Movie> inMovies = new ArrayList<Movie>();
+            for (String videoUri : videoUris) {
+                inMovies.add(MovieCreator.build(videoUri));
+            }
+
+            List<Track> videoTracks = new LinkedList<Track>();
+            List<Track> audioTracks = new LinkedList<Track>();
+
+            for (Movie m : inMovies) {
+                for (Track t : m.getTracks()) {
+                    if (t.getHandler().equals("soun")) {
+                        audioTracks.add(t);
+                    }
+                    if (t.getHandler().equals("vide")) {
+                        videoTracks.add(t);
+                    }
+                }
+            }
+
+            Movie result = new Movie();
+
+            if (audioTracks.size() > 0) {
+                result.addTrack(new AppendTrack(audioTracks.toArray(new Track[audioTracks.size()])));
+            }
+            if (videoTracks.size() > 0) {
+                result.addTrack(new AppendTrack(videoTracks.toArray(new Track[videoTracks.size()])));
+            }
+
+            Container out = new DefaultMp4Builder().build(result);
+
+            FileChannel fc = new RandomAccessFile(String.format("output.mp4"), "rw").getChannel();
+            out.writeContainer(fc);
+            fc.close();
+        }catch (IOException e){
+            e.printStackTrace();
+        }
+    }
+
+    private long findVideoLength() {
+        long duration = 0;
+        try {
+            MediaPlayer mMediaPlayer = new MediaPlayer();
+            FileInputStream stream = null;
+            stream = new FileInputStream(mNextVideoAbsolutePath);
+            mMediaPlayer.setDataSource(stream.getFD());
+            stream.close();
+            mMediaPlayer.prepare();
+            duration = mMediaPlayer.getDuration();
+            mMediaPlayer.release();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return duration;
     }
 
     private void cacheVideo() {
@@ -765,6 +972,35 @@ public class Camera2VideoFragment extends Fragment
         mPreviousVideoAbsolutePath = mNextVideoAbsolutePath;
         mNextVideoAbsolutePath = null;
         startPreview();
+    }
+
+    private static double correctTimeToSyncSample(Track track, double cutHere, boolean next) {
+        double[] timeOfSyncSamples = new double[track.getSyncSamples().length];
+        long currentSample = 0;
+        double currentTime = 0;
+        for (int i = 0; i < track.getSampleDurations().length; i++) {
+            long delta = track.getSampleDurations()[i];
+
+            if (Arrays.binarySearch(track.getSyncSamples(), currentSample + 1) >= 0) {
+                // samples always start with 1 but we start with zero therefore +1
+                timeOfSyncSamples[Arrays.binarySearch(track.getSyncSamples(), currentSample + 1)] = currentTime;
+            }
+            currentTime += (double) delta / (double) track.getTrackMetaData().getTimescale();
+            currentSample++;
+
+        }
+        double previous = 0;
+        for (double timeOfSyncSample : timeOfSyncSamples) {
+            if (timeOfSyncSample > cutHere) {
+                if (next) {
+                    return timeOfSyncSample;
+                } else {
+                    return previous;
+                }
+            }
+            previous = timeOfSyncSample;
+        }
+        return timeOfSyncSamples[timeOfSyncSamples.length - 1];
     }
 
     /**
