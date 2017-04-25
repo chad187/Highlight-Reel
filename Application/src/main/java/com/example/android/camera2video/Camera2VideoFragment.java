@@ -717,8 +717,10 @@ public class Camera2VideoFragment extends Fragment
         // Stop recording
         mMediaRecorder.stop();
         mMediaRecorder.reset();
-        File file = new File(mNextVideoAbsolutePath);
-        file.delete();
+        File filePrevious = new File(mPreviousVideoAbsolutePath);
+        filePrevious.delete();
+        File fileNext = new File(mNextVideoAbsolutePath);
+        fileNext.delete();
 //        Activity activity = getActivity();
 //        if (null != activity) {
 //            Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
@@ -726,6 +728,7 @@ public class Camera2VideoFragment extends Fragment
 //            Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
 //        }
         mNextVideoAbsolutePath = null;
+        mPreviousVideoAbsolutePath = null;
         startPreview();
     }
 
@@ -769,23 +772,33 @@ public class Camera2VideoFragment extends Fragment
             filePrevious.delete();
             File fileNext = new File(mNextVideoAbsolutePath);
             fileNext.delete();
+            File fileClip = new File(mClippedVideoPath);
+            fileClip.delete();
             mNextVideoAbsolutePath = null;
             mPreviousVideoAbsolutePath = null;
+            mClippedVideoPath = null;
         }
         else if (mVideoLength > mHistoryLength){
             //drop previous, cut and save next
-            Log.d("cases", "case 2");
+            Log.d("cases", "case 2 ");
             clipVideoLength(mVideoLength - mHistoryLength, mVideoLength, mNextVideoAbsolutePath);
-//            File filePrevious = new File(mPreviousVideoAbsolutePath);
-//            filePrevious.delete();
-//            File fileNext = new File(mNextVideoAbsolutePath);
-//            fileNext.delete();
+            if(mPreviousVideoAbsolutePath != null) {
+                File filePrevious = new File(mPreviousVideoAbsolutePath);
+                filePrevious.delete();
+            }
+            File fileNext = new File(mNextVideoAbsolutePath);
+            fileNext.delete();
             mNextVideoAbsolutePath = null;
             mPreviousVideoAbsolutePath = null;
+            mClippedVideoPath = null;
         }
         else if((mPreviousVideoAbsolutePath == null && mVideoLength < mHistoryLength) || mVideoLength == mHistoryLength) {//will probably need to make some delta comparison due to double
             //save next
             Log.d("cases", "case 3");
+            if(mPreviousVideoAbsolutePath != null) {
+                File filePrevious = new File(mPreviousVideoAbsolutePath);
+                filePrevious.delete();
+            }
             mNextVideoAbsolutePath = null;
             mPreviousVideoAbsolutePath = null;
         }
@@ -794,21 +807,20 @@ public class Camera2VideoFragment extends Fragment
 //        mMediaRecorder.setOutputFile(getVideoFilePath(getActivity()));
         startRecordingVideo();
     }
-
+    private String mClippedVideoPath;
     private void clipVideoLength(double videoStart, double videoEnd, String videoPath) {
         //shorten the video at the given location
         Movie movie = null;
         try {
+            //Movie movie = new MovieCreator().build(new RandomAccessFile("/home/sannies/suckerpunch-distantplanet_h1080p/suckerpunch-distantplanet_h1080p.mov", "r").getChannel());
             movie = MovieCreator.build(videoPath);
 
             List<Track> tracks = movie.getTracks();
             movie.setTracks(new LinkedList<Track>());
             // remove all tracks we will create new tracks from the old
 
-            double startTime1 = 10;
-            double endTime1 = 20;
-            double startTime2 = 30;
-            double endTime2 = 40;
+            double startTime1 = videoStart / 1000;
+            double endTime1 = videoEnd / 1000;
 
             boolean timeCorrected = false;
 
@@ -826,8 +838,6 @@ public class Camera2VideoFragment extends Fragment
                     }
                     startTime1 = correctTimeToSyncSample(track, startTime1, false);
                     endTime1 = correctTimeToSyncSample(track, endTime1, true);
-                    startTime2 = correctTimeToSyncSample(track, startTime2, false);
-                    endTime2 = correctTimeToSyncSample(track, endTime2, true);
                     timeCorrected = true;
                 }
             }
@@ -838,8 +848,6 @@ public class Camera2VideoFragment extends Fragment
                 double lastTime = -1;
                 long startSample1 = -1;
                 long endSample1 = -1;
-                long startSample2 = -1;
-                long endSample2 = -1;
 
                 for (int i = 0; i < track.getSampleDurations().length; i++) {
                     long delta = track.getSampleDurations()[i];
@@ -853,24 +861,17 @@ public class Camera2VideoFragment extends Fragment
                         // current sample is after the new start time and still before the new endtime
                         endSample1 = currentSample;
                     }
-                    if (currentTime > lastTime && currentTime <= startTime2) {
-                        // current sample is still before the new starttime
-                        startSample2 = currentSample;
-                    }
-                    if (currentTime > lastTime && currentTime <= endTime2) {
-                        // current sample is after the new start time and still before the new endtime
-                        endSample2 = currentSample;
-                    }
                     lastTime = currentTime;
                     currentTime += (double) delta / (double) track.getTrackMetaData().getTimescale();
                     currentSample++;
                 }
-                movie.addTrack(new AppendTrack(new CroppedTrack(track, startSample1, endSample1), new CroppedTrack(track, startSample2, endSample2)));
+                movie.addTrack(new AppendTrack(new CroppedTrack(track, startSample1, endSample1)));
             }
             long start1 = System.currentTimeMillis();
             Container out = new DefaultMp4Builder().build(movie);
             long start2 = System.currentTimeMillis();
-            FileOutputStream fos = new FileOutputStream(String.format("output-%f-%f--%f-%f.mp4", startTime1, endTime1, startTime2, endTime2));
+            mClippedVideoPath = getVideoFilePath(getActivity());
+            FileOutputStream fos = new FileOutputStream(mClippedVideoPath);
             FileChannel fc = fos.getChannel();
             out.writeContainer(fc);
 
@@ -879,8 +880,6 @@ public class Camera2VideoFragment extends Fragment
             long start3 = System.currentTimeMillis();
             System.err.println("Building IsoFile took : " + (start2 - start1) + "ms");
             System.err.println("Writing IsoFile took  : " + (start3 - start2) + "ms");
-            System.err.println("Writing IsoFile speed : " + (new File(String.format("output-%f-%f--%f-%f.mp4", startTime1, endTime1, startTime2, endTime2)).length() / (start3 - start2) / 1000) + "MB/s");
-
         }catch (FileNotFoundException e) {
             e.printStackTrace();
         } catch (IOException e) {
@@ -891,9 +890,9 @@ public class Camera2VideoFragment extends Fragment
     private void joinVideos(){
        //join previous and next videos
         try {
-            String[] videoUris = new String[]{//these files can't be right
+            String[] videoUris = new String[]{
 
-                    mPreviousVideoAbsolutePath,
+                    mClippedVideoPath,
                     mNextVideoAbsolutePath
 
             };
@@ -927,8 +926,7 @@ public class Camera2VideoFragment extends Fragment
             }
 
             Container out = new DefaultMp4Builder().build(result);
-
-            FileChannel fc = new RandomAccessFile(String.format("output.mp4"), "rw").getChannel();
+            FileChannel fc = new RandomAccessFile(getVideoFilePath(getActivity()), "rw").getChannel();
             out.writeContainer(fc);
             fc.close();
         }catch (IOException e){
@@ -958,7 +956,7 @@ public class Camera2VideoFragment extends Fragment
     private void cacheVideo() {
         mMediaRecorder.stop();
         mMediaRecorder.reset();
-        Activity activity = getActivity();
+        Activity activity = getActivity();//this can be commented out later
         if (null != activity) {
             Toast.makeText(activity, "Video cached: " + mNextVideoAbsolutePath,
                     Toast.LENGTH_SHORT).show();
