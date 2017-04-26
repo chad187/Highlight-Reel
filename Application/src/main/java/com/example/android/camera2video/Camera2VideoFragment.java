@@ -125,6 +125,7 @@ public class Camera2VideoFragment extends Fragment
      * Button to record video
      */
     private Button mButtonVideo;
+    private Button mButtonStop;
 
     /**
      * A refernce to the opened {@link android.hardware.camera2.CameraDevice}.
@@ -307,6 +308,8 @@ public class Camera2VideoFragment extends Fragment
         mButtonVideo = (Button) view.findViewById(R.id.video);
         mButtonVideo.setOnClickListener(this);
         view.findViewById(R.id.info).setOnClickListener(this);
+        mButtonStop = (Button) view.findViewById(R.id.stop);
+        mButtonStop.setOnClickListener(this);
     }
 
     @Override
@@ -324,6 +327,7 @@ public class Camera2VideoFragment extends Fragment
     public void onPause() {
         closeCamera();
         stopBackgroundThread();
+        stopRecordingVideo();
         super.onPause();
     }
 
@@ -346,6 +350,10 @@ public class Camera2VideoFragment extends Fragment
                             .setPositiveButton(android.R.string.ok, null)
                             .show();
                 }
+                break;
+            }
+            case R.id.stop: {
+                stopRecordingVideo();
                 break;
             }
         }
@@ -648,6 +656,7 @@ public class Camera2VideoFragment extends Fragment
             return;
         }
         try {
+            mButtonStop.setVisibility(View.VISIBLE);
             closePreviewSession();
             setUpMediaRecorder();
             SurfaceTexture texture = mTextureView.getSurfaceTexture();
@@ -714,19 +723,20 @@ public class Camera2VideoFragment extends Fragment
         // UI
         mIsRecordingVideo = false;
         mButtonVideo.setText(R.string.record);
+        mButtonStop.setVisibility(View.INVISIBLE);
         // Stop recording
-        mMediaRecorder.stop();
-        mMediaRecorder.reset();
-        File filePrevious = new File(mPreviousVideoAbsolutePath);
-        filePrevious.delete();
-        File fileNext = new File(mNextVideoAbsolutePath);
-        fileNext.delete();
-//        Activity activity = getActivity();
-//        if (null != activity) {
-//            Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
-//                    Toast.LENGTH_SHORT).show();
-//            Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
-//        }
+        if (mMediaRecorder != null) {
+            mMediaRecorder.stop();
+            mMediaRecorder.reset();
+        }
+        if (mPreviousVideoAbsolutePath != null) {
+            File filePrevious = new File(mPreviousVideoAbsolutePath);
+            filePrevious.delete();
+        }
+        if (mNextVideoAbsolutePath != null) {
+            File fileNext = new File(mNextVideoAbsolutePath);
+            fileNext.delete();
+        }
         mNextVideoAbsolutePath = null;
         mPreviousVideoAbsolutePath = null;
         startPreview();
