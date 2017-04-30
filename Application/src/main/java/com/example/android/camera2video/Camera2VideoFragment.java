@@ -337,6 +337,7 @@ public class Camera2VideoFragment extends Fragment
 
             }
 
+
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
                 mSeekBarValue.setVisibility(View.INVISIBLE);
