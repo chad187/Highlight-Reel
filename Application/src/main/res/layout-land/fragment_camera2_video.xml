@@ -33,7 +33,7 @@
         android:layout_alignParentEnd="true"
         android:layout_alignParentTop="true"
         android:layout_gravity="end"
-        android:background="#4285f4"
+        android:background="@android:color/transparent"
         android:orientation="horizontal">
 
         <Button
@@ -68,5 +68,26 @@
             android:text="@string/record" />
 
     </FrameLayout>
+
+    <SeekBar
+        android:id="@+id/seekBar"
+        style="@style/Widget.AppCompat.SeekBar.Discrete"
+        android:layout_width="450dp"
+        android:layout_height="50dp"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="35dp"
+        android:max="55"
+        android:progress="0" />
+
+    <TextView
+        android:id="@+id/seekBarValue"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="53dp"
+        android:textColor="@android:color/holo_purple"
+        android:textSize="80sp" />
 
 </RelativeLayout>

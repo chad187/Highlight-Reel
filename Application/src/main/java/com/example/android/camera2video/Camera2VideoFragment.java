@@ -24,6 +24,7 @@ import android.app.DialogFragment;
 import android.app.Fragment;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Matrix;
@@ -54,6 +55,8 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.SeekBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.coremedia.iso.boxes.Container;
@@ -79,8 +82,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-
-//laura
 
 public class Camera2VideoFragment extends Fragment
         implements View.OnClickListener, FragmentCompat.OnRequestPermissionsResultCallback {
@@ -116,7 +117,7 @@ public class Camera2VideoFragment extends Fragment
     /**
      * The length of the video to save in the past.
      */
-    private int mHistoryLength = 5000;
+    private int mHistoryLength;
 
     /**
      * An {@link AutoFitTextureView} for camera preview.
@@ -128,6 +129,8 @@ public class Camera2VideoFragment extends Fragment
      */
     private Button mButtonVideo;
     private Button mButtonStop;
+    private SeekBar mSeekBar;
+    private TextView mSeekBarValue;
 
     /**
      * A refernce to the opened {@link android.hardware.camera2.CameraDevice}.
@@ -312,12 +315,40 @@ public class Camera2VideoFragment extends Fragment
         view.findViewById(R.id.info).setOnClickListener(this);
         mButtonStop = (Button) view.findViewById(R.id.stop);
         mButtonStop.setOnClickListener(this);
+        mSeekBar = (SeekBar) view.findViewById(R.id.seekBar);
+        mHistoryLength = 10000;
+        mSeekBarValue = (TextView)view.findViewById(R.id.seekBarValue);
+        mSeekBar.setProgress(mHistoryLength/1000);
+        mSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                progress = progress + 5;
+                int diff = progress % 5;
+                if (diff < 3)progress = progress - diff;
+                else progress = progress + (5 - diff);
+                mSeekBarValue.setVisibility(View.VISIBLE);
+                mHistoryLength = progress * 1000;
+                mSeekBarValue.setText(String.valueOf(progress) + "s");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                mSeekBarValue.setVisibility(View.INVISIBLE);
+            }
+        });
     }
 
     @Override
     public void onResume() {
         super.onResume();
         startBackgroundThread();
+        mSeekBarValue.setVisibility(View.INVISIBLE);
         if (mTextureView.isAvailable()) {
             openCamera(mTextureView.getWidth(), mTextureView.getHeight());
         } else {
@@ -657,7 +688,15 @@ public class Camera2VideoFragment extends Fragment
         if (null == mCameraDevice || !mTextureView.isAvailable() || null == mPreviewSize) {
             return;
         }
+        getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
         try {
+//            if(getResources().getConfiguration().orientation == 1){
+//                getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+//            }
+//            else {
+//                getActivity().setRequestedOrientation((ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
+//            }
+            mSeekBar.setVisibility(View.INVISIBLE);
             mButtonStop.setVisibility(View.VISIBLE);
             closePreviewSession();
             setUpMediaRecorder();
@@ -723,6 +762,8 @@ public class Camera2VideoFragment extends Fragment
 
     private void stopRecordingVideo() {
         // UI
+        mSeekBar.setVisibility(View.VISIBLE);
+        getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         mIsRecordingVideo = false;
         mButtonVideo.setText(R.string.record);
         mButtonStop.setVisibility(View.INVISIBLE);
